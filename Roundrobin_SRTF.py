@@ -14,72 +14,97 @@ class Process:
         self.completion = 0
 
 # =========================
-# ALGORITHMS (RR & SRTF)
+# ALGORITHMS (RR & SJF)
 # =========================
+
 def round_robin(processes, quantum):
     time = 0
     queue = []
     completed = []
     gantt = []
-    processes.sort(key=lambda x: x.arrival)
+    
+    procs = sorted(processes, key=lambda x: x.arrival)
     i = 0
-    while len(completed) < len(processes):
-        while i < len(processes) and processes[i].arrival <= time:
-            queue.append(processes[i])
+    
+    while len(completed) < len(procs):
+        while i < len(procs) and procs[i].arrival <= time:
+            queue.append(procs[i])
             i += 1
+            
         if not queue:
-            time += 1
-            continue
+            if i < len(procs):
+                time = procs[i].arrival
+                continue
+            else:
+                break
+                
         current = queue.pop(0)
+        
         if current.start_time == -1:
             current.start_time = time
+            
         exec_time = min(quantum, current.remaining)
         gantt.append(f"{current.pid}({time}-{time+exec_time})")
+        
         time += exec_time
         current.remaining -= exec_time
-        while i < len(processes) and processes[i].arrival <= time:
-            queue.append(processes[i])
+        
+        
+        while i < len(procs) and procs[i].arrival <= time:
+            queue.append(procs[i])
             i += 1
+            
         if current.remaining > 0:
             queue.append(current)
         else:
             current.completion = time
             completed.append(current)
+            
     return completed, gantt
 
-def srtf(processes):
+def sjf_algorithm(processes):
     time = 0
     completed = []
     gantt = []
-    processes.sort(key=lambda x: x.arrival)
     n = len(processes)
+    
     while len(completed) < n:
-        available = [p for p in processes if p.arrival <= time and p.remaining > 0]
+       
+        available = [p for p in processes if p.arrival <= time and p.completion == 0]
+        
         if not available:
-            time += 1
+            
+            next_arrival = min([p.arrival for p in processes if p.completion == 0])
+            time = next_arrival
             continue
-        current = min(available, key=lambda x: x.remaining)
-        if current.start_time == -1:
-            current.start_time = time
-        gantt.append(f"{current.pid}({time}-{time+1})")
-        current.remaining -= 1
-        time += 1
-        if current.remaining == 0:
-            current.completion = time
-            completed.append(current)
+            
+       
+        current = min(available, key=lambda x: x.burst)
+        
+        current.start_time = time
+        start = time
+        time += current.burst
+        
+        current.completion = time
+        current.remaining = 0
+        
+        gantt.append(f"{current.pid}({start}-{time})")
+        completed.append(current)
+        
     return completed, gantt
 
 # =========================
-# METRICS
+# METRICS CALCULATION
 # =========================
 def calculate_metrics(processes):
     results = []
     if not processes: return results, 0, 0, 0
     for p in processes:
-        tat = p.completion - p.arrival
-        wt = tat - p.burst
-        rt = p.start_time - p.arrival
+        tat = p.completion - p.arrival # Turnaround Time [cite: 11]
+        wt = tat - p.burst             # Waiting Time [cite: 11]
+        rt = p.start_time - p.arrival  # Response Time [cite: 11]
         results.append((p.pid, wt, tat, rt))
+    
     avg_wt = sum(r[1] for r in results) / len(results)
     avg_tat = sum(r[2] for r in results) / len(results)
     avg_rt = sum(r[3] for r in results) / len(results)
@@ -95,164 +120,141 @@ def add_process():
         pid = pid_entry.get().strip()
         arrival = int(arrival_entry.get())
         burst = int(burst_entry.get())
-        if pid == "":
-            messagebox.showerror("Error", "Enter PID")
+        
+      
+        if pid == "": raise ValueError
+        if any(p.pid == pid for p in process_list):
+            messagebox.showerror("Error", "Duplicate PID!")
             return
-        for p in process_list:
-            if p.pid == pid:
-                messagebox.showerror("Error", f"PID '{pid}' already exists!")
-                return
         if arrival < 0 or burst <= 0:
-            messagebox.showerror("Error", "Invalid values")
+            messagebox.showerror("Error", "Invalid Arrival/Burst time!")
             return
+            
         process_list.append(Process(pid, arrival, burst))
         tree.insert("", "end", values=(pid, arrival, burst))
+        
         pid_entry.delete(0, tk.END)
         arrival_entry.delete(0, tk.END)
         burst_entry.delete(0, tk.END)
     except:
-        messagebox.showerror("Error", "Enter valid input")
+        messagebox.showerror("Error", "Please enter valid numeric data.")
 
-def run():
+def run_simulation():
     if not process_list:
-        messagebox.showerror("Error", "No processes")
+        messagebox.showerror("Error", "No processes added!")
         return
     try:
         q_val = quantum_entry.get()
         quantum = int(q_val) if q_val else 2
         if quantum <= 0: raise ValueError
     except:
-        messagebox.showerror("Error", "Invalid Quantum")
+        messagebox.showerror("Error", "Invalid Quantum Value!")
         return
 
+    
     rr_proc = [Process(p.pid, p.arrival, p.burst) for p in process_list]
-    srtf_proc = [Process(p.pid, p.arrival, p.burst) for p in process_list]
+    sjf_proc = [Process(p.pid, p.arrival, p.burst) for p in process_list]
 
+    
     rr_done, rr_gantt = round_robin(rr_proc, quantum)
-    srtf_done, srtf_gantt = srtf(srtf_proc)
+    sjf_done, sjf_gantt = sjf_algorithm(sjf_proc)
 
-    rr_results, rr_wt, rr_tat, rr_rt = calculate_metrics(rr_done)
-    srtf_results, srtf_wt, srtf_tat, srtf_rt = calculate_metrics(srtf_done)
+   
+    rr_res, rr_awt, rr_atat, rr_art = calculate_metrics(rr_done)
+    sjf_res, sjf_awt, sjf_atat, sjf_art = calculate_metrics(sjf_done)
 
+    
     rr_table.delete(*rr_table.get_children())
-    srtf_table.delete(*srtf_table.get_children())
+    sjf_table.delete(*sjf_table.get_children())
 
-    for r in rr_results: rr_table.insert("", "end", values=r)
-    for r in srtf_results: srtf_table.insert("", "end", values=r)
+    for r in sorted(rr_res, key=lambda x: x[0]): rr_table.insert("", "end", values=r)
+    for r in sorted(sjf_res, key=lambda x: x[0]): sjf_table.insert("", "end", values=r)
 
-    rr_gantt_label.config(text="RR Gantt: " + " -> ".join(rr_gantt))
-    srtf_gantt_label.config(text="SRTF Gantt: " + " -> ".join(srtf_gantt))
+    rr_gantt_label.config(text="RR Gantt Chart: " + " -> ".join(rr_gantt))
+    sjf_gantt_label.config(text="SJF Gantt Chart: " + " -> ".join(sjf_gantt))
 
     avg_label.config(
-        text=f"AVERAGES SUMMARY\n"
+        text=f"COMPARISON SUMMARY\n"
              f"--------------------------------------------------\n"
-             f"Round Robin:  WT = {rr_wt:.2f} | TAT = {rr_tat:.2f} | RT = {rr_rt:.2f}\n"
-             f"SRTF       :  WT = {srtf_wt:.2f} | TAT = {srtf_tat:.2f} | RT = {srtf_rt:.2f}"
+             f"Round Robin:  Avg WT = {rr_awt:.2f} | Avg TAT = {rr_atat:.2f} | Avg RT = {rr_art:.2f}\n"
+             f"SJF        :  Avg WT = {sjf_awt:.2f} | Avg TAT = {sjf_atat:.2f} | Avg RT = {sjf_art:.2f}"
     )
 
-def clear_all():
+def reset():
     global process_list
     process_list.clear()
-    pid_entry.delete(0, tk.END)
-    arrival_entry.delete(0, tk.END)
-    burst_entry.delete(0, tk.END)
-    quantum_entry.delete(0, tk.END)
     tree.delete(*tree.get_children())
     rr_table.delete(*rr_table.get_children())
-    srtf_table.delete(*srtf_table.get_children())
-    rr_gantt_label.config(text="")
-    srtf_gantt_label.config(text="")
+    sjf_table.delete(*sjf_table.get_children())
+    rr_gantt_label.config(text="RR Gantt Chart will appear here...")
+    sjf_gantt_label.config(text="SJF Gantt Chart will appear here...")
     avg_label.config(text="")
 
 # =========================
-# THEME COLORS
-# =========================
-BG_MAIN = "#121212"
-BG_PANEL = "#1e1e1e"
-FG_TEXT = "#e0e0e0"
-ACCENT_BLUE = "#3d5afe"
-ACCENT_GREEN = "#00e676"
-ACCENT_RED = "#ff5252"
-ACCENT_PURPLE = "#b388ff"
-
-# =========================
-# GUI SETUP
+# UI SETUP (Dark Theme)
 # =========================
 root = tk.Tk()
-root.title("CPU Scheduling Simulator - Dark Mode")
-root.geometry("1100x950")
-root.configure(bg=BG_MAIN)
+root.title("CPU Scheduling: RR vs SJF (Project C5)")
+root.geometry("1000x900")
+root.configure(bg="#121212")
 
-# STYLE CONFIG
 style = ttk.Style()
 style.theme_use("clam")
-style.configure("Treeview", background=BG_PANEL, foreground=FG_TEXT, fieldbackground=BG_PANEL, borderwidth=0)
-style.map("Treeview", background=[('selected', ACCENT_BLUE)])
-style.configure("Treeview.Heading", background="#333333", foreground="white", relief="flat")
+style.configure("Treeview", background="#1e1e1e", foreground="white", fieldbackground="#1e1e1e", borderwidth=0)
+style.configure("Treeview.Heading", background="#333", foreground="white")
 
-# INPUT FRAME
-frame1 = tk.LabelFrame(root, text=" Input Panel ", padx=10, pady=10, bg=BG_MAIN, fg=ACCENT_BLUE, font=("Arial", 10, "bold"))
-frame1.pack(fill="x", padx=20, pady=15)
+# Input Panel 
+input_frame = tk.LabelFrame(root, text=" Input Panel ", bg="#121212", fg="#b388ff", font=("Arial", 10, "bold"))
+input_frame.pack(fill="x", padx=20, pady=10)
 
-labels = ["PID", "Arrival", "Burst", "Quantum (RR)"]
+fields = [("PID", 0), ("Arrival Time", 1), ("Burst Time", 2), ("Quantum (RR)", 3)]
 entries = []
 
-for i, text in enumerate(labels):
-    tk.Label(frame1, text=text, bg=BG_MAIN, fg=FG_TEXT).grid(row=0, column=i, padx=5, pady=2)
-    
-pid_entry = tk.Entry(frame1, width=12, bg="#333", fg="white", insertbackground="white", borderwidth=0)
-arrival_entry = tk.Entry(frame1, width=12, bg="#333", fg="white", insertbackground="white", borderwidth=0)
-burst_entry = tk.Entry(frame1, width=12, bg="#333", fg="white", insertbackground="white", borderwidth=0)
-quantum_entry = tk.Entry(frame1, width=12, bg="#333", fg="white", insertbackground="white", borderwidth=0)
-
+tk.Label(input_frame, text="PID", bg="#121212", fg="white").grid(row=0, column=0)
+pid_entry = tk.Entry(input_frame, width=10, bg="#333", fg="white")
 pid_entry.grid(row=1, column=0, padx=5, pady=5)
+
+tk.Label(input_frame, text="Arrival", bg="#121212", fg="white").grid(row=0, column=1)
+arrival_entry = tk.Entry(input_frame, width=10, bg="#333", fg="white")
 arrival_entry.grid(row=1, column=1, padx=5, pady=5)
+
+tk.Label(input_frame, text="Burst", bg="#121212", fg="white").grid(row=0, column=2)
+burst_entry = tk.Entry(input_frame, width=10, bg="#333", fg="white")
 burst_entry.grid(row=1, column=2, padx=5, pady=5)
+
+tk.Label(input_frame, text="Quantum", bg="#121212", fg="white").grid(row=0, column=3)
+quantum_entry = tk.Entry(input_frame, width=10, bg="#333", fg="white")
 quantum_entry.grid(row=1, column=3, padx=5, pady=5)
 
-# BUTTONS
-btn_style = {"font": ("Arial", 9, "bold"), "padx": 15, "pady": 5, "borderwidth": 0, "cursor": "hand2"}
-tk.Button(frame1, text="Add Process", command=add_process, bg=ACCENT_BLUE, fg="white", **btn_style).grid(row=1, column=4, padx=5)
-tk.Button(frame1, text="Run Simulation", command=run, bg=ACCENT_GREEN, fg="black", **btn_style).grid(row=1, column=5, padx=5)
-tk.Button(frame1, text="Reset", command=clear_all, bg=ACCENT_RED, fg="white", **btn_style).grid(row=1, column=6, padx=5)
+tk.Button(input_frame, text="Add Process", command=add_process, bg="#3d5afe", fg="white", bd=0, padx=10).grid(row=1, column=4, padx=5)
+tk.Button(input_frame, text="Run Simulation", command=run_simulation, bg="#00e676", fg="black", bd=0, padx=10).grid(row=1, column=5, padx=5)
+tk.Button(input_frame, text="Reset", command=reset, bg="#ff5252", fg="white", bd=0, padx=10).grid(row=1, column=6, padx=5)
 
-# MAIN TABLE
+# Process Table
 tree = ttk.Treeview(root, columns=("PID", "Arrival", "Burst"), show="headings", height=5)
-for c in ("PID", "Arrival", "Burst"):
-    tree.heading(c, text=c)
-    tree.column(c, width=250, anchor="center")
-tree.pack(fill="x", padx=20, pady=10)
+for c in ("PID", "Arrival", "Burst"): tree.heading(c, text=c); tree.column(c, anchor="center")
+tree.pack(fill="x", padx=20, pady=5)
 
-# RESULTS TABLES
-res_frame = tk.Frame(root, bg=BG_MAIN)
-res_frame.pack(fill="both", expand=True, padx=20)
+# Results Tables 
+tk.Label(root, text="ROUND ROBIN RESULTS", bg="#121212", fg="#b388ff", font=("Arial", 10, "bold")).pack()
+rr_table = ttk.Treeview(root, columns=("PID", "WT", "TAT", "RT"), show="headings", height=5)
+for c in ("PID", "WT", "TAT", "RT"): rr_table.heading(c, text=c); rr_table.column(c, anchor="center")
+rr_table.pack(fill="x", padx=20, pady=5)
 
-# RR Side
-tk.Label(res_frame, text="ROUND ROBIN RESULTS", bg=BG_MAIN, fg=ACCENT_PURPLE, font=("Arial", 10, "bold")).pack(pady=(10,0))
-rr_table = ttk.Treeview(res_frame, columns=("PID", "WT", "TAT", "RT"), show="headings", height=5)
-for c in ("PID", "WT", "TAT", "RT"):
-    rr_table.heading(c, text=c)
-    rr_table.column(c, width=180, anchor="center")
-rr_table.pack(fill="x", pady=5)
+tk.Label(root, text="SJF RESULTS (Non-Preemptive)", bg="#121212", fg="#00e676", font=("Arial", 10, "bold")).pack()
+sjf_table = ttk.Treeview(root, columns=("PID", "WT", "TAT", "RT"), show="headings", height=5)
+for c in ("PID", "WT", "TAT", "RT"): sjf_table.heading(c, text=c); sjf_table.column(c, anchor="center")
+sjf_table.pack(fill="x", padx=20, pady=5)
 
-# SRTF Side
-tk.Label(res_frame, text="SRTF RESULTS", bg=BG_MAIN, fg=ACCENT_GREEN, font=("Arial", 10, "bold")).pack(pady=(10,0))
-srtf_table = ttk.Treeview(res_frame, columns=("PID", "WT", "TAT", "RT"), show="headings", height=5)
-for c in ("PID", "WT", "TAT", "RT"):
-    srtf_table.heading(c, text=c)
-    srtf_table.column(c, width=180, anchor="center")
-srtf_table.pack(fill="x", pady=5)
-
-# GANTT LABELS
-gantt_style = {"bg": BG_PANEL, "justify": "left", "anchor": "w", "wraplength": 1000, "font": ("Consolas", 9), "bd": 1, "relief": "solid", "padx": 10, "pady": 10}
-rr_gantt_label = tk.Label(root, text="RR Gantt Chart will appear here...", fg=ACCENT_PURPLE, **gantt_style)
+# Gantt Charts [cite: 232, 237]
+rr_gantt_label = tk.Label(root, text="RR Gantt Chart will appear here...", bg="#1e1e1e", fg="#b388ff", font=("Consolas", 9), wraplength=900, pady=10)
 rr_gantt_label.pack(fill="x", padx=20, pady=5)
 
-srtf_gantt_label = tk.Label(root, text="SRTF Gantt Chart will appear here...", fg=ACCENT_GREEN, **gantt_style)
-srtf_gantt_label.pack(fill="x", padx=20, pady=5)
+sjf_gantt_label = tk.Label(root, text="SJF Gantt Chart will appear here...", bg="#1e1e1e", fg="#00e676", font=("Consolas", 9), wraplength=900, pady=10)
+sjf_gantt_label.pack(fill="x", padx=20, pady=5)
 
-# AVERAGES
-avg_label = tk.Label(root, text="", fg="white", bg=BG_MAIN, font=("Courier", 11, "bold"), justify="left")
-avg_label.pack(pady=20)
+# Summary 
+avg_label = tk.Label(root, text="", bg="#121212", fg="white", font=("Courier", 11, "bold"))
+avg_label.pack(pady=10)
 
 root.mainloop()
